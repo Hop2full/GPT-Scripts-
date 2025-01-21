@@ -1,8 +1,8 @@
 /// api_version=2
 var script = registerScript({
-    name: "VulcanoFly",
+    name: "VulcanFLY",
     version: "0.4",
-    authors: ["Isaiah"]
+    authors: ["ChatGPT"]
 });
 
 var C03PacketPlayer = Java.type("net.minecraft.network.play.client.C03PacketPlayer");
