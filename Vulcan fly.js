@@ -1,8 +1,8 @@
 /// api_version=2
 var script = registerScript({
     name: "VulcanoFly",
-    version: "0.3",
-    authors: ["Chat GPT fr"]
+    version: "0.4",
+    authors: ["Isaiah"]
 });
 
 var C03PacketPlayer = Java.type("net.minecraft.network.play.client.C03PacketPlayer");
@@ -10,10 +10,9 @@ var S08PacketPlayerPosLook = Java.type("net.minecraft.network.play.server.S08Pac
 
 // Variables
 var x, y, z;
-var detected = false;
-var s08tick = 0;
 var ticks = 0;
-var isAscending = false; // Used for jump simulation
+var detected = false;
+var isAscending = false;
 
 // Helper Functions
 Math.radians = function(degrees) {
@@ -21,35 +20,48 @@ Math.radians = function(degrees) {
 };
 
 /**
- * Simulates forward motion based on player's facing direction and speed.
+ * Smoothly adjusts player's movement based on direction and speed.
  * @param {number} speed - Movement speed.
  */
-function speed(speed) {
-    var yawRadians = Math.radians(mc.thePlayer.rotationYaw);
-    mc.thePlayer.motionX = -Math.sin(yawRadians) * speed;
-    mc.thePlayer.motionZ = Math.cos(yawRadians) * speed;
+function moveSmoothly(speed) {
+    var yaw = Math.radians(mc.thePlayer.rotationYaw);
+    mc.thePlayer.motionX = -Math.sin(yaw) * speed;
+    mc.thePlayer.motionZ = Math.cos(yaw) * speed;
 }
 
 /**
- * Smoothly moves the player in a given direction by sending small position updates.
- * @param {number} distance - Horizontal distance to move.
- * @param {number} height - Vertical height offset.
+ * Simulates incremental player position updates with natural motion.
+ * @param {number} horizontal - Horizontal movement distance.
+ * @param {number} vertical - Vertical movement distance.
  */
-function clip(distance, height) {
-    var yawRadians = Math.radians(mc.thePlayer.rotationYaw);
+function clip(horizontal, vertical) {
+    var yaw = Math.radians(mc.thePlayer.rotationYaw);
 
     // Calculate offsets
-    var offsetX = -Math.sin(yawRadians) * distance;
-    var offsetZ = Math.cos(yawRadians) * distance;
+    var offsetX = -Math.sin(yaw) * horizontal;
+    var offsetZ = Math.cos(yaw) * horizontal;
 
-    // Update position incrementally
+    // Update position
     var newX = mc.thePlayer.posX + offsetX;
-    var newY = mc.thePlayer.posY + height;
+    var newY = mc.thePlayer.posY + vertical;
     var newZ = mc.thePlayer.posZ + offsetZ;
 
-    // Send position packets
-    mc.thePlayer.sendQueue.addToSendQueue(new C03PacketPlayer.C04PacketPlayerPosition(newX, newY, newZ, isAscending));
+    // Send position updates
+    mc.thePlayer.sendQueue.addToSendQueue(
+        new C03PacketPlayer.C04PacketPlayerPosition(newX, newY, newZ, mc.thePlayer.onGround)
+    );
     mc.thePlayer.setPosition(newX, newY, newZ);
+}
+
+/**
+ * Toggles vertical motion to simulate jumping.
+ */
+function toggleJump() {
+    if (mc.gameSettings.keyBindJump.isKeyDown()) {
+        isAscending = true;
+    } else if (mc.thePlayer.motionY <= 0) {
+        isAscending = false;
+    }
 }
 
 ---
@@ -58,61 +70,57 @@ function clip(distance, height) {
 ```javascript
 script.registerModule({
     name: "VulcanoFly",
-    description: "Smooth and stealthy fly mode.",
+    description: "Bypass Vulcan with smooth and realistic flying.",
     category: "Movement",
     settings: {}
 }, function(module) {
     module.on("update", function() {
         ticks++;
-        if (ticks % 20 === 0) { // Adjusted timing to smooth out movement
-            clip(0.2, isAscending ? 0.1 : -0.1); // Mimics gradual up and down motion
+        
+        // Handle gradual movement updates
+        if (ticks % 10 === 0) {
+            var verticalSpeed = isAscending ? 0.1 : -0.1; // Simulate jumping and falling
+            clip(0.3, verticalSpeed); // Small increments to mimic normal movement
         }
 
+        // Handle packet-based detection recovery
         if (detected) {
-            s08tick++;
-        }
-
-        // Reset after detection
-        if (s08tick === 2) {
-            detected = false;
-            s08tick = 0;
-            mc.thePlayer.motionY = 0; // Neutralize vertical motion
+            mc.thePlayer.motionY = -0.1; // Stabilize vertical motion
         }
     });
 
     module.on("enable", function() {
-        // Initialize player position
+        // Initialize position and reset variables
         x = mc.thePlayer.posX;
         y = mc.thePlayer.posY;
         z = mc.thePlayer.posZ;
-
-        detected = false;
-        s08tick = 0;
         ticks = 0;
+        detected = false;
     });
 
     module.on("disable", function() {
-        // Reset state on disable
+        // Reset player state on disable
+        mc.thePlayer.motionY = 0;
         detected = false;
-        s08tick = 0;
-        ticks = 0;
     });
 
     module.on("move", function(e) {
-        if (!detected) {
-            e.cancelEvent(); // Prevent default movement during active fly
-        }
+        // Cancel default movement while flying
+        e.cancelEvent();
+        moveSmoothly(0.2); // Mimic natural forward motion
     });
 
     module.on("packet", function(e) {
         var packet = e.getPacket();
 
-        if (packet instanceof C03PacketPlayer && ticks % 20 === 0) {
-            packet.onGround = !packet.onGround; // Alternate onGround state
+        // Alternate ground state to simulate landing
+        if (packet instanceof C03PacketPlayer && ticks % 10 === 0) {
+            packet.onGround = mc.thePlayer.motionY === 0;
         }
 
+        // Handle anti-cheat position correction packets
         if (packet instanceof S08PacketPlayerPosLook) {
-            detected = true; // Trigger detection logic
+            detected = true;
         }
     });
 });
